@@ -1,0 +1,80 @@
+﻿name: Build macOS app
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    env:
+      WORKDIR: "."
+      APP_FILE: "app_dashboard_full.py"
+      APP_NAME: "RedLab Dashboard"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install deps
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -U pip
+          pip install -r requirements.txt
+
+      - name: Clean previous builds
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          rm -rf "${{ env.APP_NAME }}.spec" build dist
+
+      - name: Prepare icon (optional)
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          if [ -f icon.icns ]; then
+            echo "icon.icns found"
+          elif [ -f icon.png ]; then
+            echo "Generating icon.icns from icon.png..."
+            mkdir -p Icon.iconset
+            sips -z 16 16     icon.png --out Icon.iconset/icon_16x16.png
+            sips -z 32 32     icon.png --out Icon.iconset/icon_16x16@2x.png
+            sips -z 32 32     icon.png --out Icon.iconset/icon_32x32.png
+            sips -z 64 64     icon.png --out Icon.iconset/icon_32x32@2x.png
+            sips -z 128 128   icon.png --out Icon.iconset/icon_128x128.png
+            sips -z 256 256   icon.png --out Icon.iconset/icon_128x128@2x.png
+            sips -z 256 256   icon.png --out Icon.iconset/icon_256x256.png
+            sips -z 512 512   icon.png --out Icon.iconset/icon_256x256.png
+            cp icon.png Icon.iconset/icon_512x512@2x.png
+            iconutil -c icns Icon.iconset -o icon.icns
+            echo "icon.icns generated."
+          else
+            echo "No icon.icns or icon.png present. Build will proceed without --icon."
+          fi
+
+      - name: Pack with Flet
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          source .venv/bin/activate
+          ICON_FLAG=""
+          if [ -f icon.icns ]; then ICON_FLAG="--icon icon.icns"; fi
+          flet pack "${{ env.APP_FILE }}" \
+            --name "${{ env.APP_NAME }}" \
+            $ICON_FLAG
+
+      - name: Zip .app
+        working-directory: ${{ env.WORKDIR }}/dist
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent "${{ env.APP_NAME }}.app" "RedLab_Dashboard_macOS.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RedLab_Dashboard_macOS
+          path: dist/RedLab_Dashboard_macOS.zip
